@@ -20,7 +20,7 @@ class ProxyInterlayer:
         self.listen_port = listen_port
 
         self.instances = 0
-        self.stop_event = asyncio.Event()
+        self.stop_event = None
 
         # run server in background
         executor = concurrent.futures.ThreadPoolExecutor()
@@ -37,6 +37,7 @@ class ProxyInterlayer:
 
     async def start_server(self):
         SharedStorage.init()
+        self.stop_event = asyncio.Event()
 
         server = await asyncio.start_server(self.handle_client_wrapper, self.listen_host, self.listen_port)
         self.log(f"SOCKS5 Interceptor running on {self.listen_host}:{self.listen_port}")
@@ -44,7 +45,8 @@ class ProxyInterlayer:
 
         try:
             await self.stop_event.wait()
-        except Exception:
+        except Exception as e:
+            self.log(f'Error on waiting event: {e}')
             pass
 
         self.log("Shutting down proxy server...")

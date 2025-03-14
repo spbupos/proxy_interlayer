@@ -64,7 +64,7 @@ class InterlayerInstance:
                 dst.write(data)
                 await dst.drain()
 
-        except TimeoutError:
+        except asyncio.TimeoutError:
             pass
         # HOOK: if direction is from proxy and error is 'Connection reset by peer'
         # it means client probably closed connection, so we can close connection too
@@ -73,7 +73,7 @@ class InterlayerInstance:
                 self.log(f'Connection reset by client')
                 self.closed_by_client = True
         except Exception as e:
-            self.log(f"Error: {e}")
+            self.log(f"Error on forward: {e}")
 
 
     async def close_writer(self, writer):
@@ -97,7 +97,7 @@ class InterlayerInstance:
             self.host_data = await self.handle_host_data(reader, writer)
             if not self.host_data:
                 return
-            
+
             # HOOK: let 'pseudo_dns' to build 'to_connect' byte string
             await self.pseudo_dns()
 

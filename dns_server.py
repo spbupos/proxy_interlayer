@@ -9,6 +9,9 @@ class PseudoDNSServer(asyncio.DatagramProtocol):
     def connection_made(self, transport):
         self.transport = transport
 
+    def error_received(self, exception):
+        print(f'Datagram error: {exception}')
+
     def datagram_received(self, data, addr):
         asyncio.create_task(self.handle_request(data, addr))
 
@@ -68,41 +71,47 @@ class DNSWrapper:
     def __init__(self, endpoint='127.0.0.1', port=1053):
         self.endpoint = endpoint
         self.port = port
-        self.stop_event = asyncio.Event()
+        self.stop_event = None
 
         # run server in background
         executor = concurrent.futures.ThreadPoolExecutor()
         executor.submit(self.start_server_sync)
 
+    def log(self, message):
+        print(f"[DNS:{self.port}] {message}")
+
     async def start_server(self):
+        self.stop_event = asyncio.Event()
         SharedStorage.init()
 
         loop = asyncio.get_running_loop()
-        print(f"Starting DNS server on {self.endpoint}:{self.port}")
+        self.log(f"Starting DNS server on {self.endpoint}:{self.port}")
         transport, protocol = await loop.create_datagram_endpoint(
-            lambda: PseudoDNSServer(), local_addr=('127.0.0.1', 1053)
+            lambda: PseudoDNSServer(), local_addr=(self.endpoint, self.port)
         )
 
         try:
             await self.stop_event.wait()
-        except Exception:
-            pass
+        except Exception as e:
+            self.log(f"Error on waiting event: {e}")
 
+        self.log("Shutting down DNS server...")
         transport.close()
+        self.log("DNS server stopped")
 
     def start_server_sync(self):
         while True:
             try:
                 asyncio.run(self.start_server())
             except Exception as e:
-                print(f"Error: {e}")
+                self.log(f"Error: {e}")
 
     def stop_server(self):
         self.stop_event.set()
 
 
 def main():
-    DNSWrapper()
+    DNSWrapper("127.0.0.1", "1053")
     print('Hello, world!')
 
 

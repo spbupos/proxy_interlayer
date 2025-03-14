@@ -15,11 +15,11 @@ def main():
     password = "7CWp9vTi"
 
     # local proxy configuration
-    listen_host = "127.0.0.1"
+    listen_host = "0.0.0.0"
     listen_port = 1280
 
     # DNS configuration
-    dns_host = "127.0.0.1"
+    dns_host = "0.0.0.0"
     dns_port = 1053
 
     # initializing of interlayer runs new thread
