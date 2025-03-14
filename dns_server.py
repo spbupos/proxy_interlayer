@@ -64,7 +64,10 @@ class PseudoDNSServer(asyncio.DatagramProtocol):
         # \x00\x04: Length of the IP address (4 bytes)
         type_class = request[-4:]
         answer = b'\xc0\x0c' + type_class + b'\x00\x00\x00\x3c\x00\x04' + ip
-        return header + question + answer
+
+        result = header + question + answer
+        print(f'DEBUG: request {request.hex()}, response {result.hex()}')
+        return result
 
 
 class DNSWrapper:
@@ -111,7 +114,7 @@ class DNSWrapper:
 
 
 def main():
-    DNSWrapper("127.0.0.1", "1053")
+    DNSWrapper("0.0.0.0", "53")
     print('Hello, world!')
 
 
