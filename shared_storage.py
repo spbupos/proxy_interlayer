@@ -14,7 +14,7 @@ class SharedStorage:
     lock: Lock
 
     @classmethod
-    def init(cls, shm_name="storage0", shm_size=1048576):
+    def init(cls, shm_name="storage0", shm_size=10*1024*1024):
         cls.shm_name = shm_name
         cls.shm_size = shm_size
         cls.count = 0

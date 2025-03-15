@@ -51,7 +51,7 @@ class InterlayerInstance:
     async def forward(self, src: asyncio.StreamReader, dst: asyncio.StreamWriter, label: str):
         # tune up for max performance on your machine
         limit = 8192
-        default_timeout = 0.002  # 2 ms
+        default_timeout = 0.004  # 4 ms
 
         try:
             while True:
