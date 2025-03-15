@@ -97,7 +97,7 @@ class DNSWrapper:
     def __init__(self, endpoint='127.0.0.1', port=1053):
         self.endpoint = endpoint
         self.port = port
-        self.stop_event = None
+        self.stopped = False
 
         # run server in background
         executor = concurrent.futures.ThreadPoolExecutor()
@@ -107,7 +107,6 @@ class DNSWrapper:
         global_log(f"[DNS:{self.port}] {message}", msg_type)
 
     async def start_server(self):
-        self.stop_event = asyncio.Event()
         SharedStorage.init()
 
         loop = asyncio.get_running_loop()
@@ -116,21 +115,20 @@ class DNSWrapper:
             lambda: PseudoDNSServer(self.port), local_addr=(self.endpoint, self.port)
         )
 
-        try:
-            await self.stop_event.wait()
-        except Exception as e:
-            self.log(f"Error on waiting event: {e}", MessageType.ERROR)
+        while not self.stopped:
+            await asyncio.sleep(1)
 
         self.log("Shutting down DNS server...", MessageType.INFO)
         transport.close()
+
         self.log("DNS server stopped", MessageType.INFO)
 
     def start_server_sync(self):
-        while True:
+        while not self.stopped:
             try:
                 asyncio.run(self.start_server())
             except Exception as e:
                 self.log(f"Error: {e}", MessageType.ERROR)
 
     def stop_server(self):
-        self.stop_event.set()
+        self.stopped = True

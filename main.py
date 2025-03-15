@@ -1,6 +1,8 @@
+import time
 from interlayer import ProxyInterlayer
 from dns_server import DNSWrapper
 from shared_storage import SharedStorage
+from custom_types import MessageType, global_log
 
 def main():
     # init shared storage
@@ -23,8 +25,14 @@ def main():
     dns_port = 1053
 
     # initializing of interlayer runs new thread
-    ProxyInterlayer(upstream_host, upstream_port, username, password, listen_host, listen_port)
-    DNSWrapper(dns_host, dns_port)
+    proxy = ProxyInterlayer(upstream_host, upstream_port, username, password, listen_host, listen_port)
+    dns = DNSWrapper(dns_host, dns_port)
+    global_log("NOTICE: both servers will be stopped in 10 seconds", MessageType.INFO)
+
+    time.sleep(10)
+    global_log("Stopping servers...", MessageType.INFO)
+    proxy.stop_server()
+    dns.stop_server()
 
 
 if __name__ == "__main__":
