@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from enum import Enum
 import asyncio
+from datetime import datetime
 
 # NOTICE: here:
 # - target_host, dst_port - human-readable data
@@ -16,3 +18,16 @@ class HostData:
 class UpstreamProxy:
     reader: asyncio.StreamReader = None
     writer: asyncio.StreamWriter = None
+
+# create types of messages
+class MessageType(Enum):
+    ERROR = 1
+    INFO = 2
+    DEBUG = 3
+
+LOGLEVEL = MessageType.DEBUG
+
+def global_log(msg: str, msg_type=MessageType.DEBUG):
+    if msg_type.value <= LOGLEVEL.value:
+        # add current time in YYYY-MM-DD HH:MM:SS.%f format
+        print(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")}] {msg}')

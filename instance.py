@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import socket
 from typing import TYPE_CHECKING
-from custom_types import HostData, UpstreamProxy
+from custom_types import HostData, UpstreamProxy, MessageType, global_log
 from shared_storage import SharedStorage
 
 if TYPE_CHECKING:
@@ -19,8 +19,8 @@ class InterlayerInstance:
         self.closed_by_client = False
 
 
-    def log(self, msg):
-        print(f"[PROXY:{self.parent.listen_port}:{self.instance}] {msg}")
+    def log(self, msg, msg_type=MessageType.DEBUG):
+        global_log(f"[PROXY:{self.parent.listen_port}:{self.instance}] {msg}", msg_type)
 
 
     # converts domain name to IP address and back if needed
@@ -32,17 +32,20 @@ class InterlayerInstance:
     async def pseudo_dns(self):
         ipv4_req = b"\x05\x01\x00\x01"
         host_req = b"\x05\x01\x00\x03"
+        self.log(f"DEBUG: running pseudo DNS on {self.host_data.target_host}:{self.host_data.dst_port}")
 
-        self.log(f"DEBUG: running pseudo DNS on {self.host_data.target_host:}:{self.host_data.dst_port} with type {self.host_data.type}")
-        if self.host_data.target_host.startswith('223.'):
-            real_host = await SharedStorage.ip_to_host(socket.inet_aton(self.host_data.target_host))
-            self.host_data.target_host = real_host.decode()
-            self.host_data.type = 3
+        try:
+            if self.host_data.target_host.startswith('223.'):
+                real_host = await SharedStorage.ip_to_host(socket.inet_aton(self.host_data.target_host))
+                self.host_data.target_host = real_host.decode()
+                self.host_data.type = 3
+        except Exception as e:
+            self.log(f'Error somewhere in shared memory: {e}', MessageType.ERROR)
 
         # build SOCKS request
         if self.host_data.type == 1:
             self.host_data.to_connect = ipv4_req + \
-                socket.inet_aton(self.host_data.target_host) + self.host_data.dst_port.to_bytes(2, "big")
+            socket.inet_aton(self.host_data.target_host) + self.host_data.dst_port.to_bytes(2, "big")
         elif self.host_data.type == 3:
             self.host_data.to_connect = host_req + bytes([len(self.host_data.target_host)]) +\
                 self.host_data.target_host.encode() + self.host_data.dst_port.to_bytes(2, "big")
@@ -70,10 +73,10 @@ class InterlayerInstance:
         # it means client probably closed connection, so we can close connection too
         except ConnectionResetError:
             if label == 'from_proxy':
-                self.log(f'Connection reset by client')
+                self.log(f'Connection reset by client', MessageType.INFO)
                 self.closed_by_client = True
         except Exception as e:
-            self.log(f"Error on forward: {e}")
+            self.log(f"Error on forwarding: {e}", MessageType.ERROR)
 
 
     async def close_writer(self, writer):
@@ -118,7 +121,7 @@ class InterlayerInstance:
                 await self.forward(self.upstream.reader, writer, 'from_proxy')
 
         except Exception as e:
-            self.log(f"Error: {e}")
+            self.log(f"Error in handler: {e}", MessageType.ERROR)
         finally:
             await self.close_writer(writer)
             if self.upstream:
@@ -142,7 +145,7 @@ class InterlayerInstance:
             host_data.dst_port = int.from_bytes(await reader.readexactly(2), "big")
 
         else:
-            self.log("Unsupported address type")
+            self.log("Unsupported target type", MessageType.ERROR)
             writer.write(b"\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00")
             await writer.drain()
             await self.close_writer(writer)
@@ -165,7 +168,7 @@ class InterlayerInstance:
 
         auth_response = await upstream.reader.readexactly(2)
         if auth_response[1] != 2:
-            self.log("Upstream proxy does not support authentication")
+            self.log("Upstream proxy does not support authentication", MessageType.ERROR)
             await self.close_writer(writer)
             await self.close_writer(upstream.writer)
             return None
@@ -181,7 +184,7 @@ class InterlayerInstance:
         await upstream.writer.drain()
         auth_result = await upstream.reader.readexactly(2)
         if auth_result[1] != 0:
-            self.log("Authentication failed at upstream proxy")
+            self.log("Authentication failed at upstream proxy", MessageType.ERROR)
             await self.close_writer(writer)
             await self.close_writer(upstream.writer)
             return None
@@ -211,7 +214,7 @@ class InterlayerInstance:
         self.log("Reading greeting")
         greeting = await reader.readexactly(2)
         if greeting[0] != 5:  # Ensure it's SOCKS5
-            self.log("Invalid SOCKS version")
+            self.log("Invalid SOCKS version", MessageType.ERROR)
             await self.close_writer(writer)
             return None
         self.log("Valid SOCKS version 5")
@@ -220,7 +223,7 @@ class InterlayerInstance:
         num_methods = greeting[1]
         methods = await reader.readexactly(num_methods)
         if 2 not in methods:  # Check if username/password auth is supported
-            self.log(f"No acceptable auth methods: {methods}")
+            self.log(f"No acceptable auth methods: {methods}", MessageType.ERROR)
             writer.write(b"\x05\xFF")  # No acceptable methods
             await writer.drain()
             await self.close_writer(writer)
@@ -234,7 +237,7 @@ class InterlayerInstance:
         # Read username/password authentication request
         auth_header = await reader.readexactly(1)
         if auth_header[0] != 1:  # Ensure it's username/password auth
-            self.log("Invalid authentication version")
+            self.log("Invalid authentication version", MessageType.ERROR)
             await self.close_writer(writer)
             return None
         self.log("Valid authentication version 1")
@@ -251,7 +254,7 @@ class InterlayerInstance:
 
         # Validate credentials
         if username.decode() != self.parent.username or password.decode() != self.parent.password:
-            self.log("Invalid credentials")
+            self.log("Authentication failed", MessageType.ERROR)
             writer.write(b"\x01\x01")  # Authentication failed
             await writer.drain()
             await self.close_writer(writer)
@@ -266,7 +269,7 @@ class InterlayerInstance:
         self.log("Reading request")
         request = await reader.readexactly(4)
         if request[1] != 1:  # Only support CONNECT command
-            self.log("Unsupported command")
+            self.log("Unsupported command", MessageType.ERROR)
             writer.write(b"\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00")
             await writer.drain()
             await self.close_writer(writer)

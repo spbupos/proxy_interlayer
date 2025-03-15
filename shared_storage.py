@@ -1,6 +1,6 @@
-import asyncio
 import heapq
 from multiprocessing import shared_memory, Lock
+from custom_types import MessageType, global_log
 
 ENTRY_SIZE = 260
 
@@ -14,6 +14,10 @@ class SharedStorage:
     lock: Lock
 
     @classmethod
+    def log(cls, message, msg_type=MessageType.DEBUG):
+        global_log(f"[SHM:{cls.shm_name}] {message}", msg_type)
+
+    @classmethod
     def init(cls, shm_name="storage0", shm_size=10*1024*1024):
         cls.shm_name = shm_name
         cls.shm_size = shm_size
@@ -24,12 +28,15 @@ class SharedStorage:
         try:
             # Try attaching to existing shared memory
             cls.shm = shared_memory.SharedMemory(name=shm_name, create=False, size=shm_size)
-            print("Shared memory already exists. Skipping initialization.")
+            cls.log("Shared memory already exists. Skipping initialization.")
         except FileNotFoundError:
             cls.shm = shared_memory.SharedMemory(name=shm_name, create=True, size=shm_size)
             with cls.lock:
                 cls.shm.buf[:shm_size] = bytes(shm_size)
-            print(f"Shared memory `{shm_name}` initialized with {shm_size} bytes.")
+            cls.log(f"Shared memory `{shm_name}` initialized with {shm_size} bytes.")
+        except Exception as e:
+            cls.log(f"Error in shared memory: {e}", MessageType.ERROR)
+            raise e
 
         # HOOK: free slots only where last byte != 0 and first byte at position == 0 (empty)
         if not cls.free_slots:
@@ -66,7 +73,7 @@ class SharedStorage:
             return ip # return as is
 
         ip_int = int.from_bytes(ip[1:], 'big')
-        print(f'DEBUG: ip_int={ip_int}')
+        cls.log(f'DEBUG: ip_int={ip_int}')
         entry = cls.shm.buf[ip_int * ENTRY_SIZE: (ip_int + 1) * ENTRY_SIZE]
         hostname_len = entry[3]
 
@@ -79,7 +86,7 @@ class SharedStorage:
 
     @classmethod
     async def print_shm(cls):
-        print(f"Shared memory `{cls.shm_name}`:")
+        cls.log(f"Shared memory `{cls.shm_name}`:", MessageType.INFO)
         for i in range(cls.max_count):
             entry = cls.shm.buf[i * ENTRY_SIZE: (i + 1) * ENTRY_SIZE]
             ip_bytes = b'\xdf' + entry[:3]
@@ -87,19 +94,4 @@ class SharedStorage:
                 continue
             hostname_len = entry[3]
             hostname = bytes(entry[4:4 + hostname_len])
-            print(f"{ip_bytes} -> {hostname}")
-
-async def main():
-    # testing
-    SharedStorage.init()
-    ip1 = await SharedStorage.resolve_new_host(b"google.com")
-    ip2 = await SharedStorage.resolve_new_host(b"yandex.ru")
-    ip3 = await SharedStorage.resolve_new_host(b"vk.com")
-    await SharedStorage.print_shm()
-    host1 = await SharedStorage.ip_to_host(ip1)
-    print(f'225.0.0.1: {host1}')
-    ip4 = await SharedStorage.resolve_new_host(b"mail.ru")
-    await SharedStorage.print_shm()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+            cls.log(f"{ip_bytes} -> {hostname}", MessageType.INFO)

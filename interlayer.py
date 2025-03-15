@@ -2,6 +2,7 @@ import asyncio
 import concurrent.futures
 from instance import InterlayerInstance
 from shared_storage import SharedStorage
+from custom_types import MessageType, global_log
 
 class ProxyInterlayer:
     def __init__(self,
@@ -26,10 +27,10 @@ class ProxyInterlayer:
         executor = concurrent.futures.ThreadPoolExecutor()
         executor.submit(self.start_server_sync)
 
-    def log(self, message):
+    def log(self, message, msg_type=MessageType.DEBUG):
         # interlayer instance log contains number of instance
         # from 1 to infinity, so main controller is number 0
-        print(f"[PROXY:{self.listen_port}:0] {message}")
+        global_log(f"[PROXY:{self.listen_port}:0] {message}", msg_type)
 
     async def handle_client_wrapper(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         instance = InterlayerInstance(self)
@@ -38,7 +39,7 @@ class ProxyInterlayer:
         except [asyncio.CancelledError, GeneratorExit]:
             pass
         except Exception as e:
-            self.log(f'Error: {e}')
+            self.log(f'Error in handle wrapper: {e}', MessageType.ERROR)
         finally:
             if writer and not writer.is_closing():
                 writer.close()
@@ -49,16 +50,16 @@ class ProxyInterlayer:
         self.stop_event = asyncio.Event()
 
         server = await asyncio.start_server(self.handle_client_wrapper, self.listen_host, self.listen_port)
-        self.log(f"SOCKS5 Interceptor running on {self.listen_host}:{self.listen_port}")
+        self.log(f"SOCKS5 Interceptor running on {self.listen_host}:{self.listen_port}", MessageType.INFO)
         server_task = asyncio.create_task(server.serve_forever())
 
         try:
             await self.stop_event.wait()
         except Exception as e:
-            self.log(f'Error on waiting event: {e}')
+            self.log(f'Error on waiting event: {e}', MessageType.ERROR)
             pass
 
-        self.log("Shutting down proxy server...")
+        self.log("Shutting down proxy server...", MessageType.INFO)
         server.close()
         await server.wait_closed()
         server_task.cancel()
@@ -66,14 +67,14 @@ class ProxyInterlayer:
             await server_task  # Ensure it's properly cancelled
         except asyncio.CancelledError:
             pass
-        self.log("Proxy server stopped")
+        self.log("Proxy server stopped", MessageType.INFO)
 
     def start_server_sync(self):
         while True:
             try:
                 asyncio.run(self.start_server())
             except Exception as e:
-                print(f"Error: {e}")
+                self.log(f"Error in main loop: {e}", MessageType.ERROR)
 
     def stop_server(self):
         self.stop_event.set()

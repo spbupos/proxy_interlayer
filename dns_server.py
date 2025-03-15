@@ -3,16 +3,21 @@ import concurrent.futures
 import socket
 
 from shared_storage import SharedStorage
+from custom_types import MessageType, global_log
 
 class PseudoDNSServer(asyncio.DatagramProtocol):
-    def __init__(self):
+    def __init__(self, port):
         super().__init__()
+        self.port = port
+
+    def log(self, message, msg_type=MessageType.DEBUG):
+        global_log(f"[DNS:{self.port}] {message}", msg_type)
 
     def connection_made(self, transport):
         self.transport = transport
 
     def error_received(self, exception):
-        print(f'Datagram error: {exception}')
+        self.log(f'Datagram error: {exception}', MessageType.ERROR)
 
     def datagram_received(self, data, addr):
         asyncio.create_task(self.handle_request(data, addr))
@@ -66,7 +71,7 @@ class PseudoDNSServer(asyncio.DatagramProtocol):
         question = request[12:garbage_start]
 
         type_int = int.from_bytes(question[-4:-2], 'big')
-        print(f'DEBUG: type_int={type_int}')
+        self.log(f'DEBUG: type_int={type_int}')
         # HOOK: we're supporting only IPv4 (1), so AAAA (28) and other
         # are dropped, but if we don't return anything or return response for A
         # client programs dropping it, so we should return empty answer on non-A
@@ -84,7 +89,7 @@ class PseudoDNSServer(asyncio.DatagramProtocol):
             answer = b'\xc0\x0c' + type_class + b'\x00\x00\x00\x0f\x00\x04' + ip
 
         result = header + question + answer + request[garbage_start:]
-        print(f'DEBUG: request {request.hex()}, response {result.hex()}, resolving {hostname.decode()} to {socket.inet_ntoa(ip)}')
+        self.log(f'DEBUG: request {request.hex()}, response {result.hex()}, resolving {hostname.decode()} to {socket.inet_ntoa(ip)}')
         return result
 
 
@@ -98,43 +103,34 @@ class DNSWrapper:
         executor = concurrent.futures.ThreadPoolExecutor()
         executor.submit(self.start_server_sync)
 
-    def log(self, message):
-        print(f"[DNS:{self.port}] {message}")
+    def log(self, message, msg_type=MessageType.DEBUG):
+        global_log(f"[DNS:{self.port}] {message}", msg_type)
 
     async def start_server(self):
         self.stop_event = asyncio.Event()
         SharedStorage.init()
 
         loop = asyncio.get_running_loop()
-        self.log(f"Starting DNS server on {self.endpoint}:{self.port}")
+        self.log(f"Starting DNS server on {self.endpoint}:{self.port}", MessageType.INFO)
         transport, protocol = await loop.create_datagram_endpoint(
-            lambda: PseudoDNSServer(), local_addr=(self.endpoint, self.port)
+            lambda: PseudoDNSServer(self.port), local_addr=(self.endpoint, self.port)
         )
 
         try:
             await self.stop_event.wait()
         except Exception as e:
-            self.log(f"Error on waiting event: {e}")
+            self.log(f"Error on waiting event: {e}", MessageType.ERROR)
 
-        self.log("Shutting down DNS server...")
+        self.log("Shutting down DNS server...", MessageType.INFO)
         transport.close()
-        self.log("DNS server stopped")
+        self.log("DNS server stopped", MessageType.INFO)
 
     def start_server_sync(self):
         while True:
             try:
                 asyncio.run(self.start_server())
             except Exception as e:
-                self.log(f"Error: {e}")
+                self.log(f"Error: {e}", MessageType.ERROR)
 
     def stop_server(self):
         self.stop_event.set()
-
-
-def main():
-    DNSWrapper("0.0.0.0", 1053)
-    print('Hello, world!')
-
-
-if __name__ == "__main__":
-    main()

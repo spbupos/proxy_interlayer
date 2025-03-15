@@ -25,7 +25,6 @@ def main():
     # initializing of interlayer runs new thread
     ProxyInterlayer(upstream_host, upstream_port, username, password, listen_host, listen_port)
     DNSWrapper(dns_host, dns_port)
-    print('Hello, world!')
 
 
 if __name__ == "__main__":
