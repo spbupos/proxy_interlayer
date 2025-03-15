@@ -34,7 +34,7 @@ class InterlayerInstance:
         host_req = b"\x05\x01\x00\x03"
 
         self.log(f"DEBUG: running pseudo DNS on {self.host_data.target_host:}:{self.host_data.dst_port} with type {self.host_data.type}")
-        if self.host_data.target_host.startswith('225.'):
+        if self.host_data.target_host.startswith('223.'):
             real_host = await SharedStorage.ip_to_host(socket.inet_aton(self.host_data.target_host))
             self.host_data.target_host = real_host.decode()
             self.host_data.type = 3

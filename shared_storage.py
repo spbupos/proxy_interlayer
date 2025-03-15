@@ -49,20 +49,20 @@ class SharedStorage:
             raise ValueError("Shared storage is full")
 
         # write new entry
-        with cls.lock:
-            free_slot = heapq.heappop(cls.free_slots)
-            hostname_len = len(hostname)
-            cls.shm.buf[free_slot * ENTRY_SIZE: free_slot * ENTRY_SIZE + 3] = free_slot.to_bytes(3, 'big')
-            cls.shm.buf[free_slot * ENTRY_SIZE + 3] = hostname_len
-            cls.shm.buf[free_slot * ENTRY_SIZE + 4: free_slot * ENTRY_SIZE + 4 + hostname_len] = hostname
+        #with cls.lock:
+        free_slot = heapq.heappop(cls.free_slots)
+        hostname_len = len(hostname)
+        cls.shm.buf[free_slot * ENTRY_SIZE: free_slot * ENTRY_SIZE + 3] = free_slot.to_bytes(3, 'big')
+        cls.shm.buf[free_slot * ENTRY_SIZE + 3] = hostname_len
+        cls.shm.buf[free_slot * ENTRY_SIZE + 4: free_slot * ENTRY_SIZE + 4 + hostname_len] = hostname
         cls.count += 1
 
-        return b'\xe1' + free_slot.to_bytes(3, 'big') # 225 -> 0xE1
+        return b'\xdf' + free_slot.to_bytes(3, 'big') # 223 -> 0xE1
 
     @classmethod
     async def ip_to_host(cls, ip: bytes) -> bytes:
-        # check it's "our" (225.X.X.X) IP
-        if not ip[0] != b'\xe1':
+        # check it's "our" (223.X.X.X) IP
+        if not ip[0] != b'\xdf':
             return ip # return as is
 
         ip_int = int.from_bytes(ip[1:], 'big')
@@ -70,8 +70,8 @@ class SharedStorage:
         entry = cls.shm.buf[ip_int * ENTRY_SIZE: (ip_int + 1) * ENTRY_SIZE]
         hostname_len = entry[3]
 
-        with cls.lock:
-            heapq.heappush(cls.free_slots, ip_int)
+        #with cls.lock:
+        heapq.heappush(cls.free_slots, ip_int)
         cls.count -= 1
         # NOTICE: we don't actually overwrite memory after deletion, it's just marked as free
 
@@ -82,7 +82,7 @@ class SharedStorage:
         print(f"Shared memory `{cls.shm_name}`:")
         for i in range(cls.max_count):
             entry = cls.shm.buf[i * ENTRY_SIZE: (i + 1) * ENTRY_SIZE]
-            ip_bytes = b'\xe1' + entry[:3]
+            ip_bytes = b'\xdf' + entry[:3]
             if ip_bytes[3] == 0:
                 continue
             hostname_len = entry[3]
