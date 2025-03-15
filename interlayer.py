@@ -36,7 +36,7 @@ class ProxyInterlayer:
         instance = InterlayerInstance(self)
         try:
             return await instance.handle_client(reader, writer)
-        except [asyncio.CancelledError, GeneratorExit]:
+        except (asyncio.CancelledError, GeneratorExit):
             pass
         except Exception as e:
             self.log(f'Error in handle wrapper: {e}', MessageType.ERROR)
