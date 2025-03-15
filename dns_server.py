@@ -29,7 +29,7 @@ class PseudoDNSServer(asyncio.DatagramProtocol):
             pointer = int.from_bytes(data[pos: pos + 2], 'big') & 0x3FFF
             return self.mark_unlinker(data, pointer, True)
 
-    async def handle_request(self, data, addr):
+    async def handle_request(self, data: bytes, addr):
         pos = 12
         hostname = b''
         hostname_sub, mark_link = self.mark_unlinker(data, pos)
@@ -47,25 +47,32 @@ class PseudoDNSServer(asyncio.DatagramProtocol):
         ip = await SharedStorage.resolve_new_host(hostname)
         #await SharedStorage.print_shm()
 
-        response = self.build_response(data, ip)
+        # HOOK: after reading zone (ru/ua/com) we are at position of 00 after
+        # domain name, after we have QTYPE and QCLASS (4 bytes). By standard,
+        # this is *ALWAYS* end of request, but actually we sometimes have
+        # garbage (additional section) after this. We should pass to response
+        # them splitted - last byte of response is pos+4, first byte of
+        # additional sections (garbage) is pos+5, due to slices in python
+        # both times we should pass pos+5
+        response = self.build_response(data, ip, pos+5)
         self.transport.sendto(response, addr)
 
-    def build_response(self, request, ip: bytes):
+    def build_response(self, request: bytes, ip: bytes, garbage_start: int) -> bytes:
         # Construct the DNS response header
         # \x81\x80: Standard DNS response flags (QR=1, Opcode=0, AA=1, TC=0, RD=1, RA=1, Z=0, RCODE=0)
         header = request[:2] + b'\x81\x80'  # Response flags
-        header += request[4:6] + request[4:6] + b'\x00\x00\x00\x00'  # Questions and Answer RRs (same as in the request)
-        question = request[12:]
+        header += request[4:6] + request[4:6] + request[8:12] # count of sections (same as in the request)
+        question = request[12:garbage_start]
 
         # Construct the DNS answer section
-        # \xc0\x0c: Pointer to the domain name in the question (mark '11')
+        # \xc0\x0c: Pointer to the domain name in the question (mark '11', instead of copying)
         # \x00\x01\x00\x01: Type A (host address) and Class IN (Internet) - last four bytes in the question
         # \x00\x00\x00\x3c: TTL (60 seconds)
         # \x00\x04: Length of the IP address (4 bytes)
-        type_class = request[-4:]
-        answer = b'\xc0\x0c' + type_class + b'\x00\x00\x00\x3c\x00\x04' + ip
+        type_class = question[-4:]
+        answer = b'\xc0\x0c' + type_class + b'\x00\x00\x00\x0f\x00\x04' + ip
 
-        result = header + question + answer
+        result = header + question + answer + request[garbage_start:]
         print(f'DEBUG: request {request.hex()}, response {result.hex()}')
         return result
 
@@ -114,7 +121,7 @@ class DNSWrapper:
 
 
 def main():
-    DNSWrapper("0.0.0.0", "53")
+    DNSWrapper("0.0.0.0", 1053)
     print('Hello, world!')
 
 

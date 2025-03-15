@@ -20,7 +20,7 @@ def main():
 
     # DNS configuration
     dns_host = "0.0.0.0"
-    dns_port = 53
+    dns_port = 1053
 
     # initializing of interlayer runs new thread
     ProxyInterlayer(upstream_host, upstream_port, username, password, listen_host, listen_port)
