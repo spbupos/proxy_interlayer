@@ -28,7 +28,7 @@ class InterlayerInstance:
     # contains original host (in domain form in most cases) in 'Host' header, and such
     # request will lead to error (if redirect one host to another for example).
     # Replaces will work only in combination with our "real" DNS server, which will
-    # act as in proxychains and return virtual IPs (225.X.X.X) for any domain
+    # act as in proxychains and return virtual IPs (223.X.X.X) for any domain
     async def pseudo_dns(self):
         ipv4_req = b"\x05\x01\x00\x01"
         host_req = b"\x05\x01\x00\x03"
@@ -91,23 +91,24 @@ class InterlayerInstance:
         self.log("New connection")
 
         try:
-            # here - connect request base, always 4 bytes
-            self.request = await self.client_auth(reader, writer)
-            if not (self.request and isinstance(self.request, bytes) and len(self.request) == 4):
+            # start SOCKS5 session
+            await self.client_auth(reader, writer)
+
+            # authenticate at upstream proxy
+            self.upstream = await self.upstream_auth(reader, writer)
+            if not self.upstream:
                 return
 
             # get host data from CONNECT request
-            self.host_data = await self.handle_host_data(reader, writer)
+            self.host_data = await self.handle_request(reader, writer)
             if not self.host_data:
                 return
 
             # HOOK: let 'pseudo_dns' to build 'to_connect' byte string
             await self.pseudo_dns()
 
-            # Open connection to real SOCKS5 proxy
-            self.upstream = await self.upstream_auth(writer)
-            if not self.upstream:
-                return
+            # complete connection to real SOCKS5 proxy
+            await self.complete_connection(writer)
 
             # Start bidirectional proxying
             self.log("Proxying data")
@@ -128,8 +129,104 @@ class InterlayerInstance:
                 await self.close_writer(self.upstream.writer)
 
 
-    async def handle_host_data(self, reader, writer) -> [HostData, None]:
-        addr_type = self.request[3]
+    async def client_auth(self, reader, writer) -> None:
+        # Read greeting (version + auth methods)
+        self.log("Reading greeting")
+        greeting = await reader.readexactly(2)
+        if greeting[0] != 5:  # Ensure it's SOCKS5
+            self.log("Invalid SOCKS version", MessageType.ERROR)
+            await self.close_writer(writer)
+            return None
+        self.log("Valid SOCKS version 5")
+
+        self.log("Reading auth methods")
+        num_methods = greeting[1]
+        methods = await reader.readexactly(num_methods)
+        if 2 not in methods:  # Check if username/password auth is supported
+            self.log(f"No acceptable auth methods: {methods}", MessageType.ERROR)
+            writer.write(b"\x05\xFF")  # No acceptable methods
+            await writer.drain()
+            await self.close_writer(writer)
+            return None
+        self.log("Auth methods accepted")
+
+        # Respond with authentication method (username/password)
+        self.log("Starting authentication")
+        writer.write(b"\x05\x02")
+        await writer.drain()
+        # Read username/password authentication request
+        auth_header = await reader.readexactly(1)
+        if auth_header[0] != 1:  # Ensure it's username/password auth
+            self.log("Invalid authentication version", MessageType.ERROR)
+            await self.close_writer(writer)
+            return None
+        self.log("Valid authentication version 1")
+
+
+    async def upstream_auth(self, reader, writer) -> [UpstreamProxy, None]:
+        username_len = await reader.readexactly(1)
+        self.log(f"Reading username of length {username_len[0]}")
+        username = await reader.readexactly(username_len[0])
+        self.log(f"Username: {username}")
+
+        password_len = await reader.readexactly(1)
+        self.log(f"Reading password of length {password_len[0]}")
+        password = await reader.readexactly(password_len[0])
+        self.log(f"Password: {password}")
+
+        self.log("Connecting to upstream proxy")
+        upstream = UpstreamProxy()
+        upstream.reader, upstream.writer = \
+            await asyncio.open_connection(self.parent.upstream_host, self.parent.upstream_port)
+
+        # Forward authentication to upstream proxy
+        self.log("Authenticating at upstream proxy")
+        upstream.writer.write(b"\x05\x01\x02")
+        await upstream.writer.drain()
+
+        auth_response = await upstream.reader.readexactly(2)
+        if auth_response[1] != 2:
+            self.log("Upstream proxy does not support authentication", MessageType.ERROR)
+            await self.close_writer(writer)
+            await self.close_writer(upstream.writer)
+            return None
+
+        # Send username/password authentication to upstream proxy
+        self.log("Sending credentials to upstream proxy")
+        auth_packet = b"\x01" + username_len + username + password_len + password
+        upstream.writer.write(auth_packet)
+
+        await upstream.writer.drain()
+        auth_result = await upstream.reader.readexactly(2)
+        if auth_result[1] != 0:
+            self.log("Authentication failed", MessageType.ERROR)
+            writer.write(b"\x01\x01")  # Authentication failed
+            await writer.drain()
+            await self.close_writer(writer)
+            await self.close_writer(upstream.writer)
+            return None
+
+        self.log("Authentication successful")
+        writer.write(b"\x01\x00")  # Authentication successful
+        await writer.drain()
+
+        return upstream
+
+
+    async def handle_request(self, reader, writer) -> [HostData, None]:
+        # Read SOCKS5 request
+        self.log("Reading request")
+        request = await reader.readexactly(4)
+        if request[1] != 1:  # Only support CONNECT command
+            self.log("Unsupported command", MessageType.ERROR)
+            writer.write(b"\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00")
+            await writer.drain()
+            await self.close_writer(writer)
+            return None
+        self.log("Received CONNECT command")
+
+        addr_type = request[3]
+        self.log(f'DEBUG: addr_type={addr_type}')
         host_data = HostData(addr_type)
 
         if addr_type == 1:  # IPv4
@@ -155,128 +252,24 @@ class InterlayerInstance:
         return host_data
 
 
-    async def upstream_auth(self, writer) -> [UpstreamProxy, None]:
-        self.log("Connecting to upstream proxy")
-        upstream = UpstreamProxy()
-        upstream.reader, upstream.writer = \
-            await asyncio.open_connection(self.parent.upstream_host, self.parent.upstream_port)
-
-        # Forward authentication to upstream proxy
-        self.log("Authenticating at upstream proxy")
-        upstream.writer.write(b"\x05\x01\x02")
-        await upstream.writer.drain()
-
-        auth_response = await upstream.reader.readexactly(2)
-        if auth_response[1] != 2:
-            self.log("Upstream proxy does not support authentication", MessageType.ERROR)
-            await self.close_writer(writer)
-            await self.close_writer(upstream.writer)
-            return None
-
-        # Send username/password authentication to upstream proxy
-        self.log("Sending credentials to upstream proxy")
-        auth_packet = (
-                b"\x01" + bytes([len(self.parent.username)]) + self.parent.username.encode() +
-                bytes([len(self.parent.password)]) + self.parent.password.encode()
-        )
-        upstream.writer.write(auth_packet)
-
-        await upstream.writer.drain()
-        auth_result = await upstream.reader.readexactly(2)
-        if auth_result[1] != 0:
-            self.log("Authentication failed at upstream proxy", MessageType.ERROR)
-            await self.close_writer(writer)
-            await self.close_writer(upstream.writer)
-            return None
-        self.log("Authentication successful at upstream proxy")
-
+    async def complete_connection(self, writer) -> None:
         # Send connection request to upstream proxy
         self.log(f"Connecting to target host {self.host_data.target_host}:{self.host_data.dst_port}")
-        upstream.writer.write(self.host_data.to_connect)
-        await upstream.writer.drain()
+        self.upstream.writer.write(self.host_data.to_connect)
+        await self.upstream.writer.drain()
 
-        upstream_response = await upstream.reader.readexactly(10)
+        upstream_response = await self.upstream.reader.readexactly(10)
+        # Send response back to client immediately!
+        writer.write(upstream_response)
+        await writer.drain()
+
         if upstream_response[1] != 0:
             self.log(f"Upstream proxy failed to connect to {self.host_data.target_host}:{self.host_data.dst_port}")
             await self.close_writer(writer)
-            await self.close_writer(upstream.writer)
+            await self.close_writer(self.upstream.writer)
             return None
+
         self.log(f"Connected to {self.host_data.target_host}:{self.host_data.dst_port}")
-
-        # Send successful response back to client
-        writer.write(upstream_response)
-        await writer.drain()
-        return upstream
-
-
-    async def client_auth(self, reader, writer) -> [bytes, None]:
-        # Read greeting (version + auth methods)
-        self.log("Reading greeting")
-        greeting = await reader.readexactly(2)
-        if greeting[0] != 5:  # Ensure it's SOCKS5
-            self.log("Invalid SOCKS version", MessageType.ERROR)
-            await self.close_writer(writer)
-            return None
-        self.log("Valid SOCKS version 5")
-
-        self.log("Reading auth methods")
-        num_methods = greeting[1]
-        methods = await reader.readexactly(num_methods)
-        if 2 not in methods:  # Check if username/password auth is supported
-            self.log(f"No acceptable auth methods: {methods}", MessageType.ERROR)
-            writer.write(b"\x05\xFF")  # No acceptable methods
-            await writer.drain()
-            await self.close_writer(writer)
-            return None
-        self.log("Auth methods accepted")
-
-        # Respond with authentication method (username/password)
-        self.log("Authenticating")
-        writer.write(b"\x05\x02")
-        await writer.drain()
-        # Read username/password authentication request
-        auth_header = await reader.readexactly(1)
-        if auth_header[0] != 1:  # Ensure it's username/password auth
-            self.log("Invalid authentication version", MessageType.ERROR)
-            await self.close_writer(writer)
-            return None
-        self.log("Valid authentication version 1")
-
-        username_len = await reader.readexactly(1)
-        self.log(f"Reading username of length {username_len[0]}")
-        username = await reader.readexactly(username_len[0])
-        self.log(f"Username: {username}")
-
-        password_len = await reader.readexactly(1)
-        self.log(f"Reading password of length {password_len[0]}")
-        password = await reader.readexactly(password_len[0])
-        self.log(f"Password: {password}")
-
-        # Validate credentials
-        if username.decode() != self.parent.username or password.decode() != self.parent.password:
-            self.log("Authentication failed", MessageType.ERROR)
-            writer.write(b"\x01\x01")  # Authentication failed
-            await writer.drain()
-            await self.close_writer(writer)
-            return None
-
-        # Send authentication success
-        self.log("Authentication successful")
-        writer.write(b"\x01\x00")  # Authentication successful
-        await writer.drain()
-
-        # Read SOCKS5 request
-        self.log("Reading request")
-        request = await reader.readexactly(4)
-        if request[1] != 1:  # Only support CONNECT command
-            self.log("Unsupported command", MessageType.ERROR)
-            writer.write(b"\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00")
-            await writer.drain()
-            await self.close_writer(writer)
-            return None
-        self.log("Received CONNECT command")
-
-        return request
 
 
     def __del__(self):  # IMPORTANT: don't forget to decrement instances counter

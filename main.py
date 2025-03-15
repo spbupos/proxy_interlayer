@@ -12,10 +12,6 @@ def main():
     upstream_host = "213.18.207.142"
     upstream_port = 5337
 
-    # Authentication Credentials
-    username = "2Bk2fQo4E"
-    password = "7CWp9vTi"
-
     # local proxy configuration
     listen_host = "0.0.0.0"
     listen_port = 1280
@@ -25,14 +21,14 @@ def main():
     dns_port = 1053
 
     # initializing of interlayer runs new thread
-    proxy = ProxyInterlayer(upstream_host, upstream_port, username, password, listen_host, listen_port)
+    proxy = ProxyInterlayer(upstream_host, upstream_port, listen_host, listen_port)
     dns = DNSWrapper(dns_host, dns_port)
-    global_log("NOTICE: both servers will be stopped in 10 seconds", MessageType.INFO)
 
-    time.sleep(10)
-    global_log("Stopping servers...", MessageType.INFO)
-    proxy.stop_server()
-    dns.stop_server()
+    #global_log("NOTICE: both servers will be stopped in 10 seconds", MessageType.INFO)
+    #time.sleep(10)
+    #global_log("Stopping servers...", MessageType.INFO)
+    #proxy.stop_server()
+    #dns.stop_server()
 
 
 if __name__ == "__main__":
