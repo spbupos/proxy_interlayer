@@ -33,7 +33,16 @@ class ProxyInterlayer:
 
     async def handle_client_wrapper(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         instance = InterlayerInstance(self)
-        return await instance.handle_client(reader, writer)
+        try:
+            return await instance.handle_client(reader, writer)
+        except [asyncio.CancelledError, GeneratorExit]:
+            pass
+        except Exception as e:
+            self.log(f'Error: {e}')
+        finally:
+            if writer and not writer.is_closing():
+                writer.close()
+                await writer.wait_closed()
 
     async def start_server(self):
         SharedStorage.init()
