@@ -81,27 +81,27 @@ class APIController:
         async def start_instance(request: fastapi.Request):
             data = await request.json()
             upstream_host = data.get("upstream_host")
-            upstream_port = data.get("upstream_port")
+            upstream_port = int(data.get("upstream_port"))
             username = data.get("username")
             password = data.get("password")
             listen_host = data.get("listen_host")
-            listen_port = data.get("listen_port")
+            listen_port = int(data.get("listen_port"))
 
             if not upstream_host or not upstream_port or not username or not password or not listen_host or not listen_port:
-                return fastapi.Response(content={"error": "Missing fields"}, status_code=400)
+                return fastapi.Response(content=json.dumps({"error": "Missing fields"}), status_code=400)
 
             # IMPORTANT: we should check if port is free
             if not self.is_udp_free(listen_host, listen_port):
-                return fastapi.Response(content={"error": "Port is in use"}, status_code=400)
+                return fastapi.Response(content=json.dumps({"error": "Port is in use"}), status_code=400)
 
             # initializing of interlayer runs new thread
             try:
                 proxy = ProxyInterlayer(upstream_host, upstream_port, username, password, listen_host, listen_port)
                 self.port_instances[listen_port] = proxy
                 self.add_instance_to_dict(upstream_host, upstream_port, username, password, listen_host, listen_port)
-                return fastapi.Response(content={"status": f"Instance started on {listen_host}:{listen_port}"}, status_code=200)
+                return fastapi.Response(content=json.dumps({"status": f"Instance started on {listen_host}:{listen_port}"}), status_code=200)
             except Exception as e:
-                return fastapi.Response(content={"error": f"Error occured: {e}"}, status_code=500)
+                return fastapi.Response(content=json.dumps({"error": f"Error occured: {e}"}), status_code=500)
 
 
         # POST /stop_instance
@@ -112,24 +112,25 @@ class APIController:
         async def stop_instance(request: fastapi.Request):
             data = await request.json()
             listen_host = data.get("listen_host")
-            listen_port = data.get("listen_port")
+            listen_port = int(data.get("listen_port"))
+            print(f'DEBUG: instances={self.port_instances} port={listen_port}')
 
             if not listen_port:
-                return fastapi.Response(content={"error": "Missing fields"}, status_code=400)
+                return fastapi.Response(content=json.dumps({"error": "Missing fields"}), status_code=400)
 
             if not listen_host:
                 listen_host = self.proxy_default_host
 
             if listen_port not in self.port_instances:
-                return fastapi.Response(content={"error": "Instance not found"}, status_code=404)
+                return fastapi.Response(content=json.dumps({"error": "Instance not found"}), status_code=404)
 
-            if self.port_instances[listen_port].stopped or self.is_udp_free(listen_host, listen_port):
-                return fastapi.Response(content={"error": "Instance already stopped"}, status_code=400)
+            if self.port_instances[listen_port].stopped:
+                return fastapi.Response(content=json.dumps({"error": "Instance already stopped"}), status_code=400)
 
             self.port_instances[listen_port].stop_server()
             self.port_instances.pop(listen_port)
             self.remove_instance_from_dict(listen_port)
-            return fastapi.Response(content={"status": f"Instance stopped on {listen_host}:{listen_port}"}, status_code=200)
+            return fastapi.Response(content=json.dumps({"status": f"Instance stopped on {listen_host}:{listen_port}"}), status_code=200)
 
 
     def init_api(self):

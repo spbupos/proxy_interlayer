@@ -1,14 +1,1 @@
-{
-  "loglevel": 3,
-  "proxy_instances": {
-    "1280": {
-      "upstream_host": "213.18.207.142",
-      "upstream_port": 5337,
-      "username": "2Bk2fQo4E",
-      "password": "7CWp9vTi",
-      "listen_host": "0.0.0.0",
-      "listen_port": 1280
-    }
-  },
-  "dns_port": 1053
-}
+{"loglevel": 3, "proxy_instances": {"1280": {"upstream_host": "213.18.207.142", "upstream_port": 5337, "username": "2Bk2fQo4E", "password": "7CWp9vTi", "listen_host": "0.0.0.0", "listen_port": 1280}}, "dns_port": 1053}
