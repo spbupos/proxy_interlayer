@@ -22,7 +22,6 @@ class APIController:
 
         self.dns_default_host = "0.0.0.0"
         self.dns_default_port = 1053
-        self.proxy_default_host = "0.0.0.0"
 
         self.api_host = api_host
         self.api_port = api_port
@@ -81,18 +80,20 @@ class APIController:
         async def start_instance(request: fastapi.Request):
             data = await request.json()
             upstream_host = data.get("upstream_host")
-            upstream_port = int(data.get("upstream_port"))
+            upstream_port_s = data.get("upstream_port")
             username = data.get("username")
             password = data.get("password")
             listen_host = data.get("listen_host")
-            listen_port = int(data.get("listen_port"))
+            listen_port_s = data.get("listen_port")
 
-            if not upstream_host or not upstream_port or not username or not password or not listen_host or not listen_port:
+            if not upstream_host or not upstream_port_s or not username or not password or not listen_host or not listen_port_s:
                 return fastapi.Response(content=json.dumps({"error": "Missing fields"}), status_code=400)
+            upstream_port = int(upstream_port_s)
+            listen_port = int(listen_port_s)
 
             # IMPORTANT: we should check if port is free
-            if not self.is_udp_free(listen_host, listen_port):
-                return fastapi.Response(content=json.dumps({"error": "Port is in use"}), status_code=400)
+            if listen_port in self.port_instances.keys():
+                return fastapi.Response(content=json.dumps({"error": "Instance already active on this port"}), status_code=400)
 
             # initializing of interlayer runs new thread
             try:
@@ -112,14 +113,11 @@ class APIController:
         async def stop_instance(request: fastapi.Request):
             data = await request.json()
             listen_host = data.get("listen_host")
-            listen_port = int(data.get("listen_port"))
-            print(f'DEBUG: instances={self.port_instances} port={listen_port}')
+            listen_port_s = data.get("listen_port")
 
-            if not listen_port:
+            if not listen_host or not listen_port_s:
                 return fastapi.Response(content=json.dumps({"error": "Missing fields"}), status_code=400)
-
-            if not listen_host:
-                listen_host = self.proxy_default_host
+            listen_port = int(listen_port_s)
 
             if listen_port not in self.port_instances:
                 return fastapi.Response(content=json.dumps({"error": "Instance not found"}), status_code=404)
