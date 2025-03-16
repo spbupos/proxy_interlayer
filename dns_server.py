@@ -127,8 +127,11 @@ class DNSWrapper:
         while not self.stopped:
             try:
                 asyncio.run(self.start_server())
+            except OSError:  # port already in use
+                self.log('Port is in use, exiting...', MessageType.ERROR)
+                self.stopped = True
             except Exception as e:
-                self.log(f"Error: {e}", MessageType.ERROR)
+                self.log(f"Error in main loop: {e}", MessageType.ERROR)
 
     def stop_server(self):
         self.stopped = True
