@@ -27,12 +27,6 @@ def main():
     # initializing of interlayer runs new thread
     proxy = ProxyInterlayer(upstream_host, upstream_port, username, password, listen_host, listen_port)
     dns = DNSWrapper(dns_host, dns_port)
-    global_log("NOTICE: both servers will be stopped in 10 seconds", MessageType.INFO)
-
-    time.sleep(10)
-    global_log("Stopping servers...", MessageType.INFO)
-    proxy.stop_server()
-    dns.stop_server()
 
 
 if __name__ == "__main__":
