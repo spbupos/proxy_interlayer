@@ -1,32 +1,25 @@
-import time
-from interlayer import ProxyInterlayer
-from dns_server import DNSWrapper
-from shared_storage import SharedStorage
-from custom_types import MessageType, global_log
+import argparse
+from control_api import APIController
 
 def main():
-    # init shared storage
-    SharedStorage.init()
+    parser = argparse.ArgumentParser(description="API controller for proxy instances")
+    parser.add_argument("-a", "--api-host", type=str, help="API host")
+    parser.add_argument("-p", "--api-port", type=int, help="API port")
+    parser.add_argument("-c", "--config-file", type=str, help="Config file")
+    args = parser.parse_args()
 
-    # SOCKS5 Proxy Configuration
-    upstream_host = "213.18.207.142"
-    upstream_port = 5337
+    default_api_host = "0.0.0.0"
+    default_api_port = 1984
+    default_config_file = "proxy.json"
 
-    # Authentication Credentials
-    username = "2Bk2fQo4E"
-    password = "7CWp9vTi"
+    api_host = args.api_host if args.api_host else default_api_host
+    api_port = args.api_port if args.api_port else default_api_port
+    config_file = args.config_file if args.config_file else default_config_file
 
-    # local proxy configuration
-    listen_host = "0.0.0.0"
-    listen_port = 1280
+    a = APIController(config_file, api_host, api_port)
+    a.run_forever()
 
-    # DNS configuration
-    dns_host = "0.0.0.0"
-    dns_port = 1053
-
-    # initializing of interlayer runs new thread
-    proxy = ProxyInterlayer(upstream_host, upstream_port, username, password, listen_host, listen_port)
-    dns = DNSWrapper(dns_host, dns_port)
+    a.shutdown()
 
 
 if __name__ == "__main__":

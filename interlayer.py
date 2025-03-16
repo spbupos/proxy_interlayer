@@ -48,10 +48,9 @@ class ProxyInterlayer:
     async def start_server(self):
         SharedStorage.init()
 
+        self.log(f'Starting proxy server on {self.listen_host}:{self.listen_port}', MessageType.INFO)
         server = await asyncio.start_server(self.handle_client_wrapper, self.listen_host, self.listen_port)
-        self.log(f"SOCKS5 Interceptor running on {self.listen_host}:{self.listen_port}", MessageType.INFO)
         server_task = asyncio.create_task(server.serve_forever())
-        self.log("Server started", MessageType.INFO)
 
         while not self.stopped:
             await asyncio.sleep(1)

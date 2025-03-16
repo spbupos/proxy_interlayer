@@ -25,9 +25,9 @@ class MessageType(Enum):
     INFO = 2
     DEBUG = 3
 
-LOGLEVEL = MessageType.DEBUG
+LOGLEVEL = 3
 
 def global_log(msg: str, msg_type=MessageType.DEBUG):
-    if msg_type.value <= LOGLEVEL.value:
+    if msg_type.value <= LOGLEVEL:
         # add current time in YYYY-MM-DD HH:MM:SS.%f format
         print(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")}] {msg}')
