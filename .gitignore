@@ -34,3 +34,6 @@
 # IDEA files
 .idea/
 __pycache__/
+
+# Logs
+*.log
