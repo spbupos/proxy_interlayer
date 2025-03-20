@@ -19,6 +19,9 @@ class ProxyInterlayer:
         self.password = password
         self.listen_host = listen_host
         self.listen_port = listen_port
+        
+        # HOTFIX: avoid garbage collection of pending tasks
+        self.background_tasks = set()
 
         self.instances = 0
         self.stopped = False
@@ -34,8 +37,11 @@ class ProxyInterlayer:
 
     async def handle_client_wrapper(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         instance = InterlayerInstance(self)
+        
         try:
-            return await instance.handle_client(reader, writer)
+            r = instance.handle_client(reader, writer)
+            #self.background_tasks.add(r)
+            return await r
         except (asyncio.CancelledError, GeneratorExit):
             pass
         except Exception as e:

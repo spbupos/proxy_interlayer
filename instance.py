@@ -53,8 +53,8 @@ class InterlayerInstance:
 
     async def forward(self, src: asyncio.StreamReader, dst: asyncio.StreamWriter, label: str):
         # tune up for max performance on your machine
-        limit = 1024
-        default_timeout = 0.001  # 1 ms
+        limit = 1500
+        default_timeout = 0.01  # 10 ms
 
         try:
             while True:
@@ -111,14 +111,30 @@ class InterlayerInstance:
 
             # Start bidirectional proxying
             self.log("Proxying data")
+            connection_timeout = 0.1  # 100 ms
             while True:
                 # 1. response is always after request, so we can wait for request first
                 # 2. if local reader is EOF, connection is closed
                 if reader.at_eof() or self.upstream.reader.at_eof() or self.closed_by_client:
                     self.log('Connection closed')
                     break
-                await self.forward(reader, self.upstream.writer, 'to_proxy')
-                await self.forward(self.upstream.reader, writer, 'from_proxy')
+                
+                # read client
+                try:
+                    await asyncio.wait_for(self.forward(reader, self.upstream.writer, 'to_proxy'), connection_timeout)
+                except asyncio.TimeoutError:
+                    self.log('Connection timeout')
+                    break
+                
+                # write proxy
+                try:
+                    await asyncio.wait_for(self.forward(self.upstream.reader, writer, 'from_proxy'), connection_timeout)
+                except asyncio.TimeoutError:
+                    self.log('Connection timeout')
+                    break
+                
+                # sleep for 100 ms to avoid 100% CPU load
+                await asyncio.sleep(0.1)
 
         except Exception as e:
             self.log(f"Error in handler: {e}", MessageType.ERROR)

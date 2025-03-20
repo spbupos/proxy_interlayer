@@ -1,4 +1,4 @@
-import heapq
+import random
 from multiprocessing import shared_memory, Lock
 from custom_types import MessageType, global_log
 
@@ -16,9 +16,14 @@ class SharedStorage:
     @classmethod
     def log(cls, message, msg_type=MessageType.DEBUG):
         global_log(f"[SHM:{cls.shm_name}] {message}", msg_type)
+    
+    @classmethod
+    def reinit_free(cls):
+        if not cls.free_slots:
+            cls.free_slots = [i for i in range(cls.max_count) if i & 0xFF != 0 and cls.shm.buf[i * ENTRY_SIZE] == 0]
 
     @classmethod
-    def init(cls, shm_name="storage0", shm_size=10*1024*1024):
+    def init(cls, shm_name="storage0", shm_size=50*1024*1024):
         cls.shm_name = shm_name
         cls.shm_size = shm_size
         cls.count = 0
@@ -39,8 +44,7 @@ class SharedStorage:
             raise e
 
         # HOOK: free slots only where last byte != 0 and first byte at position == 0 (empty)
-        if not cls.free_slots:
-            cls.free_slots = [i for i in range(cls.max_count) if i & 0xFF != 0 and cls.shm.buf[i * ENTRY_SIZE] == 0]
+        cls.reinit_free()
 
     # entry - 260 bytes (ENTRY_SIZE)
     # IP address 3 bytes (X.X.X)
@@ -57,7 +61,12 @@ class SharedStorage:
 
         # write new entry
         #with cls.lock:
-        free_slot = heapq.heappop(cls.free_slots)
+        #free_slot = heapq.heappop(cls.free_slots)
+        # ALERT: if free_slots is empty => garbage requests exceeded memory - drop all
+        cls.reinit_free()
+        free_slot_index = random.randint(0, len(cls.free_slots) - 1)
+        free_slot = cls.free_slots.pop(free_slot_index)
+        
         hostname_len = len(hostname)
         cls.shm.buf[free_slot * ENTRY_SIZE: free_slot * ENTRY_SIZE + 3] = free_slot.to_bytes(3, 'big')
         cls.shm.buf[free_slot * ENTRY_SIZE + 3] = hostname_len
@@ -76,13 +85,15 @@ class SharedStorage:
         cls.log(f'DEBUG: ip_int={ip_int}')
         entry = cls.shm.buf[ip_int * ENTRY_SIZE: (ip_int + 1) * ENTRY_SIZE]
         hostname_len = entry[3]
+        result = bytes(entry[4:4 + hostname_len])
 
         #with cls.lock:
-        heapq.heappush(cls.free_slots, ip_int)
+        #heapq.heappush(cls.free_slots, ip_int)
+        cls.free_slots.append(ip_int)
         cls.count -= 1
         # NOTICE: we don't actually overwrite memory after deletion, it's just marked as free
 
-        return bytes(entry[4:4 + hostname_len])
+        return result
 
     @classmethod
     async def print_shm(cls):
